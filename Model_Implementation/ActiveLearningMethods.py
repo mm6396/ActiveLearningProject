@@ -10,7 +10,7 @@ class ActiveLearningMethod(abc.ABC):
 
     def __init__(self):
         """
-        Normal constructor for class. Subclass and pass in needed samples for
+        Normal constructor for class. Subclass and pass in needed samples for the specific approach.
         """
         raise NotImplemented
 
