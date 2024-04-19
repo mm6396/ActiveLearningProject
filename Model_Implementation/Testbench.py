@@ -1,3 +1,4 @@
+# Merhnoush
 # Jeremy Lim
 # jlim@wpi.edu
 # Quick testbench framework, to help guide us in implementation.
@@ -25,7 +26,7 @@ def train_on_AL_approach(image_classifier: object, al_instance: ActiveLearningMe
 
     # call al_instance.choose_n_samples() to decide which samples to annotate.
 
-    # Update classifier for 1 epoch on all of the labeled samples.
+    # Update classifier weights (1 backprop iteration) for 1 epoch on all of the labeled samples.
 
     # Classifier predicts again on all data (labeled or unlabeled) (New_State)
 

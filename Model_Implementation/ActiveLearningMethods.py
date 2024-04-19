@@ -43,3 +43,22 @@ class ActiveLearningMethod(abc.ABC):
         :return: None. This only updates internal state.
         """
         pass
+
+    # zaher
+    # random
+
+    # Jeremy
+    # entropy
+
+    # Adish
+    # Least confidence
+
+    # Still figuring out
+    # DRLA
+
+    # margin sampling
+
+    # FUSION - low priority
+
+# class DRLA(ActiveLearningMethod):
+#     self.actor_Model = "abs"
