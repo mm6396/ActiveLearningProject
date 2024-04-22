@@ -60,7 +60,7 @@ print(test2['type'].value_counts(), '\n')
 
 #
 import shutil
-base_dir = '..\Skin_Cancer_MNIST'
+base_dir = 'Diabetic_Retinopathy'
 
 train1_dir = os.path.join(base_dir, 'train1')
 # print(train1_dir)
@@ -131,10 +131,10 @@ for index, row in test2.iterrows():
 
     #TO make sure images show up
 # from tensorflow.keras.preprocessing.image import ImageDataGenerator
-# train1_path = '../Skin_Cancer_MNIST/train1'
-# train2_path = '../Skin_Cancer_MNIST/train2'
-# test1_path = '../Skin_Cancer_MNIST/test1'
-# test2_path = '../Skin_Cancer_MNIST/test2'
+# train1_path = '../Diabetic_Retinopathy/train1'
+# train2_path = '../Diabetic_Retinopathy/train2'
+# test1_path = '../Diabetic_Retinopathy/test1'
+# test2_path = '../Diabetic_Retinopathy/test2'
 
 # train1_batches = ImageDataGenerator(rescale = 1./255).flow_from_directory(train1_path, target_size=(224,224), shuffle = True)
 # train2_batches = ImageDataGenerator(rescale = 1./255).flow_from_directory(train2_path, target_size=(224,224), shuffle = True)
