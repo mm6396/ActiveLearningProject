@@ -48,8 +48,7 @@ class ActiveLearningMethod(abc.ABC):
         """
         pass
 
-# zaher
-# random
+
 
 # Jeremy
 # entropy
@@ -116,9 +115,64 @@ class EntropyStrategy(ActiveLearningMethod):
     def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
         pass
 
+# zaher
+# random
+
+class RandomSamplingStrategy(ActiveLearningMethod):
+    def __init__(self):
+        super().__init__()
+
+def choose_n_samples(self, sample_num, state, labeled_mask):
+        
+        
+        unlabeled_indices = np.where(labeled_mask == 0)[0]
+        
+        # Randomly select 'sample_num' indices
+        if len(unlabeled_indices) > sample_num:
+            selected_indices = np.random.choice(unlabeled_indices, size=sample_num, replace=False)
+        else:
+            selected_indices = unlabeled_indices
+
+        return selected_indices
+
+def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
+    pass
+
 
 # Adish
 # Least confidence
+
+class LeastConfidenceStrategy(ActiveLearningMethod):
+    def __init__(self):
+        super().__init__()
+
+    def choose_n_samples(self, sample_num, state, labeled_mask):
+        """
+        Selects samples where the model has the least confidence in its predictions.
+        """
+        # Calculate the confidence 
+        confidences = np.max(state, axis=1)
+        # Finds indices of unlabeled samples
+        unlabeled_indices = np.where(labeled_mask == 0)[0]
+        
+        # Filters confidence by unlabeled samples
+        unlabeled_confidences = confidences[unlabeled_indices]
+    
+        # Gets the indices of samples sorted by confidence (least confident first)
+        sorted_indices = np.argsort(unlabeled_confidences)
+        
+        # Select the top 'sample_num' indices
+        selected_indices = sorted_indices[:sample_num]
+
+        # Return these indices, reindexed to the original dataset
+        return unlabeled_indices[selected_indices]
+
+    def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
+        pass
+
+
+
+
 
 # margin sampling
 
