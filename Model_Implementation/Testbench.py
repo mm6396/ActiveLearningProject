@@ -6,6 +6,14 @@
 # Basically, once this testbench is up and running, we can tweak/re-tweak DRLA using the training set to optimize performance.
 # NOTE: NOT a good idea to tweak the classifier, only the AL method!!!
 
+# INITIAL_SAMPLES = 130
+BATCH_SIZE = 32
+N_S =1 # one sample each time from unlabeled data
+# EPOCHS = 5
+# LEARNING_RATE = 0.001
+# NUM_CLASSES = 2
+# INPUT_SHAPE = (224, 224, 3)
+#regarding the Jeremy's Comment. I will modify it 
 
 
 import numpy as np
@@ -16,8 +24,7 @@ from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
 
-from ActiveLearningMethods import EntropyStrategy
-
+from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy
 def convert_to_one_hot(labels, num_classes):
     
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
@@ -41,81 +48,87 @@ class ResNet50Classifier:
         model = Model(inputs=base_model.input, outputs=predictions)
         model.compile(optimizer=Adam(learning_rate=self.lr), loss='categorical_crossentropy', metrics=['accuracy'])
         return model
+    
+    def predict(self, x):
+        return self.model.predict(x)
 
 def load_data(path):
     with h5py.File(path + 'train250_train_x.h5', 'r') as file:
-        x_train = file['x'][:]
+        x_train = np.array(file['x'][:])
     with h5py.File(path + 'train250_train_y.h5', 'r') as file:
-        y_train = file['y'][:]
+        y_train = np.array(file['y'][:])
         
         
     with h5py.File(path + 'train250_val_x.h5', 'r') as file:
-        x_val = file['x'][:]
+        x_val = np.array(file['x'][:])
     with h5py.File(path + 'train250_val_y.h5', 'r') as file:
-        y_val = file['y'][:]
+        y_val = np.array(file['y'][:])
     return x_train, y_train , x_val , y_val
+
+
+
 def main():
-    print("Starting the main function.")
+    print("Starting the main function.\n")
+    
     path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
 
-    x_train, y_train , x_val , y_val = load_data(path)
-    x_train = resize_images(x_train.astype('float32'))
+    x_train, y_train, x_val, y_val = load_data(path)
+    x_train = resize_images(x_train)  
     y_train = convert_to_one_hot(y_train, num_classes=2)
-    
-    x_val = resize_images(x_val.astype('float32'))
+
+    x_val = resize_images(x_val)
     y_val = convert_to_one_hot(y_val, num_classes=2)
-    
-    
-    strategies = [EntropyStrategy(),
-                #    RandomStrategy(),
-                #    LeastConfidenceStrategy(),
-                #    DRLA()
-                   ]
-    
-    for strategy in strategies:                           # Loop over strategies 
-        print(f" ------------------- << {strategy} >> --------------------------")
-        classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=2)
-        model = classifier.model
 
-        num_samples = len(y_train)
-        print("num samples are : {num_samples}")
-        initial_samples = 130
-        batch_size = 10
+    strategies = [EntropyStrategy(), RandomSamplingStrategy(), LeastConfidenceStrategy()  
+                    #DRLA
+                    ]
 
-        initial_indices = np.random.choice(num_samples, initial_samples, replace=False)
+    for strategy in strategies:
+        print(f"------------------- << {strategy} >> --------------------------")
+        classifier =  ResNet50Classifier(input_shape=(224, 224, 3), num_class=2) 
+        model = classifier
+
+        num_samples = len(x_train)
+        initial_samples = 130  
+
+        
         labeled_mask = np.zeros(num_samples, dtype=bool)
+        initial_indices = np.random.choice(num_samples, initial_samples, replace=False)
         labeled_mask[initial_indices] = True
 
-    
-        x_selected = tf.gather(x_train, initial_indices)
-        y_selected = tf.gather(y_train, initial_indices)
-        # print(f"x_selected shape: {x_selected.shape}, y_selected shape: {y_selected.shape}")
+        # Initial labeled data
+        x_labeled = np.array(x_train)[initial_indices]
+        y_labeled = np.array(y_train)[initial_indices]
 
-        model.fit(x_selected, y_selected, epochs=5 , batch_size=32)
-        current_performance = model.evaluate(x_val, y_val)
-        print(f"Initial performance for {strategy}: {current_performance}")
-
-        remaining_indices = np.where(labeled_mask == False)[0]
+        # Unlabeled data indices
+        remaining_indices = np.where(labeled_mask==False)[0]
 
         while len(remaining_indices) > 0:
-            predictions = model.predict(tf.gather(x_train, remaining_indices))  # Predict those datasets that have not been labeled yet (unlabeled)
-            entropy_strategy = EntropyStrategy()
-            selected_indices = entropy_strategy.choose_n_samples(batch_size, predictions, labeled_mask[remaining_indices]) # select the indices that have highest entropy (most informative samples)
-        
-            labeled_mask[remaining_indices[selected_indices]] = True  # update the labeled_mask after marking the selected samples as labeled
+            print(f"The Strategy is: {strategy} \n")
 
-            train_indices = np.where(labeled_mask==True)[0] # All data that those label is True 
-            x_train_truelabeled = tf.gather(x_train, train_indices)
-            y_train_truelabeled = tf.gather(y_train, train_indices)
-       
+            # Choose one new samples from unlabeled pool to label it
+            predictions = model.predict(np.array(x_train)[remaining_indices])  # Predict on unlabeled data
+            print(f"dimension labeled_mask is : {labeled_mask.shape}")
+            
+            selected_indices = strategy.choose_n_samples(N_S, predictions, labeled_mask)
+            labeled_mask[remaining_indices[selected_indices]] = True
 
-            model.fit(x_train_truelabeled, y_train_truelabeled, epochs=1, batch_size=10)
+            # Update label mask
+            labeled_indices = np.where(labeled_mask==True)[0]
+            x_labeled = np.array(x_train)[labeled_indices]
+            y_labeled = np.array(y_train)[labeled_indices]
+
+            # Train the classifier with all labeled data
+            model.fit(x_labeled, y_labeled, epochs=1, validation_data=(x_val, y_val), batch_size=BATCH_SIZE)
+
+            # Evaluate the classifier (new_perfomance)
             new_performance = model.evaluate(x_val, y_val)
-            print(f"----------------------------------*3 >> Updated performance is for {strategy} : ------------------*3>> {new_performance}")
+            print(f"new performance: {new_performance}")
 
-            remaining_indices = np.where(labeled_mask == False)[0]
+            # Update the remaining indices
+            remaining_indices = np.where(labeled_mask==False)[0]
 
-    print("Active learning with entropy method completed.")
+        print(f"Active learning with {strategy} completed.")
 
 if __name__ == "__main__":
     main()
