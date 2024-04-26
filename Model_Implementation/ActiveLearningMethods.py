@@ -171,24 +171,18 @@ class LeastConfidenceStrategy(ActiveLearningMethod):
         pass
 
 
-
-
-
 # margin sampling
 
 # FUSION - low priority
 
 # For the below class, we ported and heavily modified Keras' example code from here: https://github.com/keras-team/keras-io/blob/master/examples/rl/ddpg_pendulum.py
-# Much of the code is courtesy of the original author: [amifunny](https://github.com/amifunny)
+# Much of the code in the class is courtesy of the original author: [amifunny](https://github.com/amifunny)
 class DRLA(ActiveLearningMethod):
 
     # JL: TODO: Missing parts
-    # 1) Our reward function is unique, needs to replace MSE that's used here. (It's buried in it...)
     # 2) Some part of the flow needs to be reworked for getting actor action back to the critic, that's missing right now.
-    # 3) Not sure if critic shape is correct or compatible yet.
-    # 4) ActiveLearningMethod.update_on_new_state might not have the correct parameters. Need to update to make compatible with DRLA (Doesn't matter for other methods)
 
-    def __init__(self, n_samples, k_classes):
+    def __init__(self, n_samples, k_classes, n_truth_labels):
         """
         Normal constructor for class. Subclass and pass in needed samples for the specific approach.
         """
@@ -197,9 +191,16 @@ class DRLA(ActiveLearningMethod):
         self.num_samples = n_samples
         self.num_classes = k_classes
 
+        # This algorithm takes in all of the labels in the constructor at the beginning for efficiency.
+        # HOWEVER, it doesn't use all of the labels when calculating reward.
+        # Only the "revealed" truth labels are used at every update step. So it doesn't know the "future"!
+        self.truth_labels = n_truth_labels
+
         # Define all hyperparameters for everything here.
-        # TODO: make parameters?
         # JL - copying parameters from example for now.
+
+        self.hidden_dense_units = 256
+        self.critic_negative_slope = 0.3  # Q can't really be negative, but prevent the critic from completely losing
 
         self.noise_std_dev = 0.2
         self.ou_noise = DRLA.OUActionNoise(mean=np.zeros(1), std_deviation=float(self.noise_std_dev) * np.ones(1))
@@ -229,9 +230,7 @@ class DRLA(ActiveLearningMethod):
         self.target_actor_model.set_weights(self.actor_model.get_weights())
         self.target_critic_model.set_weights(self.critic_model.get_weights())
 
-        self.replay_buffer = DRLA.ReplayBuffer((n_samples, k_classes), n_samples, batch_size=64)
-
-
+        self.replay_buffer = DRLA.ReplayBuffer((n_samples, k_classes), n_samples)
 
     # JL - porting example code helper functions below ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -244,8 +243,9 @@ class DRLA(ActiveLearningMethod):
     def build_actor(self):  # renamed from get_actor()
 
         inputs = layers.Input(shape=(self.num_samples, self.num_classes))
-        out = layers.Dense(256, activation="relu")(inputs)
-        out = layers.Dense(256, activation="relu")(out)
+        flatten_input = layers.Flatten()(inputs)
+        out = layers.Dense(self.hidden_dense_units, activation="relu")(flatten_input)
+        out = layers.Dense(self.hidden_dense_units, activation="relu")(out)
         outputs = layers.Dense(1, activation="sigmoid",)(out)
 
         # JL - the paper says 3 fully connected layers. Do we count the last sigmoid?
@@ -275,17 +275,42 @@ class DRLA(ActiveLearningMethod):
         # # Outputs single value for give state-action
         # model = keras.Model([state_input, action_input], outputs)
 
-        # Exactly the same as actor? This is what the paper says - JL
-        inputs = layers.Input(shape=(self.num_samples, self.num_classes))
-        out = layers.Dense(256, activation="relu")(inputs)
-        out = layers.Dense(256, activation="relu")(out)
-        outputs = layers.Dense(1, activation="sigmoid", )(out)
+        # JL - for now
+        state_input = layers.Input(shape=(self.num_samples, self.num_classes), name="state_input")
+        flat_state = layers.Flatten()(state_input)
+        action_input = layers.Input(shape=(self.num_samples, 1), name="action_input")  # Whether a sample was labeled or not.
+        flat_action = layers.Flatten()(action_input)
+        concat_all = layers.Concatenate()(flat_state, flat_action)
+        out = layers.Dense(self.hidden_dense_units, activation="relu")(concat_all)
+        out = layers.Dense(self.hidden_dense_units, activation="relu")(out)
+        out = layers.Dense(1, activation="linear", )(out)  # JL - in our problem, the Q value will never be below zero,
+        # so we'll use an absolute value to keep it positive and avoid weirdness in case it happens to start negative!
+        # Lambda layer: https://stackoverflow.com/questions/64856336/absolute-value-layer-in-cnn
+        # JL - can review this in case critic doesn't fit at all!
+        q_output = layers.Lambda(lambda x: tf.abs(x))(out)
 
-        # JL - the paper says 3 fully connected layers. Do we count the last sigmoid?
-
-        model = keras.Model(inputs, outputs)
+        model = keras.Model(inputs=[state_input, action_input], outputs=q_output)
 
         return model
+
+    @staticmethod
+    def reward(y_pred, y_true):
+        """
+        Compute the reward on a set of predictions, as according to DRLA.
+        This assumes everything is provided in one-hot encoding.
+        :param y_pred: Classifier predicted values. The State! So the shape is (nsamples)x(kclasses).
+        :param y_true: The ground-truth values. So the shape is (nsamples)x(kclasses).
+        :return: The scalar reward value.
+        """
+        # Subtract the classifier prediction on the correct reward from the maximal confidence value.
+        # Basically, if the correct value is the classifier's highest output, 0 reward.
+        # But if the classifier's highest output is the wrong value, subtract the classifier's confidence on the correct value!
+
+        # get ground truth indices.
+        true_idxs = np.argmax(y_true, axis=1)
+
+        # we average the rewards across all of the samples passed in!
+        return np.mean(np.max(y_pred, axis=1) - y_pred[np.arange(y_pred.shape[0]), true_idxs])
 
     """
     To implement better exploration by the Actor network, we use noisy perturbations,
@@ -294,6 +319,7 @@ class DRLA(ActiveLearningMethod):
     It samples noise from a correlated normal distribution.
     """
 
+    # JL - TODO: Might need to tune this? Is this noise enough to affect our actions for exploration?
     class OUActionNoise:
         def __init__(self, mean, std_deviation, theta=0.15, dt=1e-2, x_initial=None):
             self.theta = theta
@@ -348,8 +374,7 @@ class DRLA(ActiveLearningMethod):
 
             # JL - we have a unique shape for our state space, we concatenate the provided tuple.
             self.state_buffer = np.zeros(self.buffer_capacity + state_shape_tuple)
-            num_actions = None # JL - Rework
-            self.action_buffer = np.zeros((self.buffer_capacity, num_actions))  # TODO: JL - What do we pass for this
+            self.action_buffer = np.zeros((self.buffer_capacity, n_samples))
             self.reward_buffer = np.zeros((self.buffer_capacity, 1))
             self.next_state_buffer = np.zeros(self.buffer_capacity + state_shape_tuple)  # JL - inefficient!!!
 
@@ -388,7 +413,8 @@ class DRLA(ActiveLearningMethod):
 
     # We compute the loss and update parameters
     def learn_actor_critic(self):
-
+        # JL - batch size is currently the entire buffer!
+        # May need to make into smaller batches for some training!
         state, action, reward, next_state = self.replay_buffer.get_buffer_arrs()
 
         # Convert to tensors
@@ -459,7 +485,6 @@ class DRLA(ActiveLearningMethod):
     `policy()` returns an action sampled from our Actor network plus some noise for
     exploration.
     """
-
     def policy(self, state, noise_object):
         sampled_actions = keras.ops.squeeze(self.actor_model(state))
         noise = noise_object()
@@ -524,12 +549,21 @@ class DRLA(ActiveLearningMethod):
         # 2) Update the actor with one gradient update. Equation 4 from the paper
         # 3) Update target actor/critic with Equation 7 from the paper.
 
-        # Done. All internal state that needed to be updated is finished.
-        #
 
-        # TODO: JL - does our particular critic take a reward/action?
-        action = None # JL - needs reworking!!!
-        reward = None # JL - needs reworking!!!
+        # If labels somehow decrease, there's a probem!
+        assert np.count_nonzero(new_state_labeled_mask) > np.count_nonzero(previous_state_labeled_mask), "Somehow, samples got un-labeled!"
+
+        # Calculate reward on all revealed samples.
+        reward = DRLA.reward(new_state, self.truth_labels[new_state_labeled_mask])
+
+        # Calculate action be taking the difference between the masks
+        action_mask = np.logical_xor(new_state_labeled_mask, previous_state_labeled_mask)
+
+        # convert to 0.0/1.0 for critic NN input
+        action = np.zeros((new_state.shape[0]))
+        action[action_mask] = 1.0
+
         self.replay_buffer.record((previous_state, action, reward, new_state))
 
         self.learn_actor_critic()
+        # Done!
