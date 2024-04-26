@@ -2,6 +2,8 @@ import pandas as pd
 from pathlib import Path
 from sklearn import model_selection
 import collections
+from PIL import Image
+import matplotlib.pyplot as plt
 
 RAND_SEED = 2653
 
@@ -120,7 +122,19 @@ for i, (df, title) in enumerate([(scMnist_test, 'Test'), (scMnist_testVal, 'Test
     print(data)
 
 
-print(scMnist_train.head())
-print(scMnist_val.head())
-print(scMnist_test.head())
-print(scMnist_testVal.head())
+
+# print(image_path)
+# image_id = 'ISIC_0032129'
+# image_path = imageid_path_dict[image_id]
+
+# # Open one image and display it
+# image = Image.open(image_path)
+# plt.imshow(image)
+# plt.axis('off') 
+# plt.show()
+
+
+# print(scMnist_train.head())
+# print(scMnist_val.head())
+# print(scMnist_test.head())
+# print(scMnist_testVal.head())
