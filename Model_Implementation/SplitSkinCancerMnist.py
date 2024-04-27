@@ -2,8 +2,8 @@ import pandas as pd
 from pathlib import Path
 from sklearn import model_selection
 import collections
-from PIL import Image
-import matplotlib.pyplot as plt
+#from PIL import Image
+#import matplotlib.pyplot as plt
 
 RAND_SEED = 2653
 
@@ -15,7 +15,7 @@ def check_duplicates(df):
     return num_duplicates
 
 
-data_path = Path("./Skin_Cancer_MNIST")
+data_path = Path("../skin-cancer-mnist")
 
 csv_path = data_path / 'HAM10000_metadata.csv'
 scMnist_data = pd.read_csv(csv_path).set_index('image_id')

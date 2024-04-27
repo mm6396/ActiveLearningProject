@@ -24,10 +24,11 @@ from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
+import SplitSkinCancerMnist
+from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
 
-from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA 
+
 def convert_to_one_hot(labels, num_classes):
-    
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
     return one_hot_labels.squeeze()  
 
@@ -76,11 +77,20 @@ def load_data(path):
     return x_train, y_train , x_val , y_val
 
 
+def get_skin_mnist_x_y(dataFrame):
+    #train_x = dataFrame.path.values
+    #train_y = dataFrame.label.values
+    return dataFrame.path.values, dataFrame.label.values
 
 def main():
     print("Starting the main function.\n")
     
     path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
+
+    skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
+    skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
+    skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
 
     x_train, y_train, x_val, y_val = load_data(path)
     x_train = resize_images(x_train)  
