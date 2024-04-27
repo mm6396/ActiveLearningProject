@@ -10,7 +10,7 @@
 BATCH_SIZE = 32
 N_S =1 # one sample each time from unlabeled data
 # EPOCHS = 5
-# LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 # NUM_CLASSES = 2
 # INPUT_SHAPE = (224, 224, 3)
 #regarding the Jeremy's Comment. I will modify it 
@@ -18,8 +18,9 @@ N_S =1 # one sample each time from unlabeled data
 
 import numpy as np
 import copy
+from MetricPlotter import MetricPlotter
 import tensorflow as tf
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
@@ -36,8 +37,17 @@ def resize_images(images):
     ###Resize images to the standard for ResNet50.
     return tf.image.resize(images, [224, 224])
 
+
+#These metrics will be implemented
+# def F1_Micro(y_actual, y_pred):
+    
+#    return F1_Micro
+
+# def F1_Macro(y_actual, y_pred):
+#     return F1_Macro
+
 class ResNet50Classifier:
-    def __init__(self, input_shape, num_class, lr=0.001):
+    def __init__(self, input_shape, num_class, lr=LEARNING_RATE):
         self.input_shape = input_shape
         self.num_class = num_class
         self.lr = lr
@@ -50,7 +60,7 @@ class ResNet50Classifier:
         output = Dense(2, activation='softmax')(x)
         
         model = Model(inputs=base_model.input, outputs=output)
-        model.compile(optimizer=Adam(learning_rate=self.lr), loss='categorical_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
         return model
     
     def fit(self, x, y, epochs, batch_size, validation_data):
@@ -102,6 +112,8 @@ def main():
                 #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
                     DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
                     ]
+    
+    metric_plotter = MetricPlotter()
 
     for strategy in strategies:
         print(f"------------------- << {strategy} >> --------------------------")
@@ -109,7 +121,7 @@ def main():
         model = classifier
 
         num_samples = len(x_train)
-        initial_samples = 130  
+        initial_samples = 200  
 
         
         labeled_mask = np.zeros(num_samples, dtype=bool)
@@ -146,13 +158,16 @@ def main():
             new_performance = model.evaluate(x_val, y_val)
             new_state = model.predict(np.array(x_train))
             print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
-
+            
+            
+            metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
             strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
 
             # Update the remaining indices
             remaining_indices = np.where(labeled_mask==False)[0]
 
         print(f"Active learning with {strategy} completed.")
+        metric_plotter.display_all_plots()
 
 if __name__ == "__main__":
     main()
