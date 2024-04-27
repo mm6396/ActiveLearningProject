@@ -54,13 +54,19 @@ class ResNet50Classifier:
         self.model = self._build_model()
 
     def _build_model(self):
-        base_model = ResNet50(weights='imagenet', include_top=True, input_shape=self.input_shape)
-        base_model.layers.pop()  # removing the original output layer
-        x = base_model.layers[-1].output
-        output = Dense(2, activation='softmax')(x)
+        base_model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape)
+
+        # Freezing all layers
+        for l in base_model.layers:
+            l.trainable = False
+
+        avg_pool = tf.keras.layers.GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+
+        output = Dense(2, activation='softmax')(avg_pool)
         
         model = Model(inputs=base_model.input, outputs=output)
         model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
+
         return model
     
     def fit(self, x, y, epochs, batch_size, validation_data):
