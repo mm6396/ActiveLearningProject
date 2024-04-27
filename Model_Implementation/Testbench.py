@@ -51,9 +51,14 @@ class ResNet50Classifier:
         self.input_shape = input_shape
         self.num_class = num_class
         self.lr = lr
-        self.model = self._build_model()
+        self.base_model, self.model = self._build_models()
 
-    def _build_model(self):
+        self.precompute_batch_size = 32  # Just to manage this prediction step, so it doesn't consume too much RAM.
+
+    def _build_models(self):
+
+        # Separating the model parts to run prediction in batched parts!
+
         base_model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape)
 
         # Freezing all layers
@@ -62,21 +67,32 @@ class ResNet50Classifier:
 
         avg_pool = tf.keras.layers.GlobalAveragePooling2D(name="avg_pool")(base_model.output)
 
-        output = Dense(2, activation='softmax')(avg_pool)
-        
-        model = Model(inputs=base_model.input, outputs=output)
+        construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
+
+        trainable_input = tf.keras.layers.Input((avg_pool.shape))
+        trainable_output = Dense(2, activation='softmax')(trainable_input)
+
+        model = Model(inputs=trainable_input, outputs=trainable_output)
         model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
 
-        return model
-    
+        return construct_base_model, model
+
+    def precompute_input(self, x):
+        # Use the frozen model trunk to precompute features for all x
+        # Better than re-running the model every time...
+        return self.base_model.predict(x, batch_size=32)
+
     def fit(self, x, y, epochs, batch_size, validation_data):
+        # NOTE: only fit precomputed x!
         return self.model.fit(x, y, epochs=epochs, batch_size=batch_size, validation_data=validation_data)
     
     def predict(self, x):
+        # NOTE: only fit precomputed x!
         return self.model.predict(x)
     
     
     def evaluate(self, x, y):
+        # NOTE: only fit precomputed x!
         return self.model.evaluate(x, y)
 
 def load_data(path):
@@ -113,6 +129,16 @@ def main():
     x_val = resize_images(x_val)
     y_val = convert_to_one_hot(y_val, num_classes=2)
 
+    # JL - moving model outside of loop.
+    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=2)
+    model = classifier
+
+    # This step might take a little bit, but it only runs once!
+    print("Precomputing feature maps for frozen resnet layers...")
+    x_train = model.precompute_input(x_train)
+    x_val = model.precompute_input(x_val)
+    print("Done Precomputing feature maps!")
+
     strategies = [ 
                   # EntropyStrategy(),
                 #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
@@ -123,8 +149,6 @@ def main():
 
     for strategy in strategies:
         print(f"------------------- << {strategy} >> --------------------------")
-        classifier =  ResNet50Classifier(input_shape=(224, 224, 3), num_class=2) 
-        model = classifier
 
         num_samples = len(x_train)
         initial_samples = 200  
