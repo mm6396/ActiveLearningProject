@@ -3,6 +3,8 @@
 # All of our active learning strategies are implemented here.
 
 import abc
+import random  # for batch shuffling
+import math
 
 import numpy as np
 import keras
@@ -208,6 +210,8 @@ class DRLA(ActiveLearningMethod):
         # Learning rate for actor-critic models
         self.critic_lr = 0.002
         self.actor_lr = 0.001
+
+        self.update_batch_size = 32
 
         self.critic_optimizer = keras.optimizers.Adam(self.critic_lr)
         self.actor_optimizer = keras.optimizers.Adam(self.actor_lr)
@@ -417,16 +421,43 @@ class DRLA(ActiveLearningMethod):
         # May need to make into smaller batches for some training!
         state, action, reward, next_state = self.replay_buffer.get_buffer_arrs()
 
-        # Convert to tensors
-        state_batch = tf.convert_to_tensor(state)
-        action_batch = tf.convert_to_tensor(action)
-        reward_batch = tf.convert_to_tensor(reward)
-        reward_batch = tf.cast(reward_batch, dtype="float32")
-        next_state_batch = tf.convert_to_tensor(next_state)
+        batch_num = int(state.shape[0] / self.update_batch_size)
 
-        self.update(state_batch, action_batch, reward_batch, next_state_batch)
+        if state.shape[0] % self.update_batch_size != 0:
+            batch_num += 1
 
-        # Apply update rule
+        # Shuffle every update!
+        idxs = list(range(state.shape[0]))
+
+        # shuffle
+        random.shuffle(idxs)
+
+        for i in range(batch_num):
+            print("A/C batch update: " + str(i+1) + "/" + str(batch_num))
+            batch_idxs = idxs[i*self.update_batch_size:(i+1)*self.update_batch_size]
+
+            if len(batch_idxs) > 1:
+                state_batch = state[batch_idxs]
+                action_batch = action[batch_idxs]
+                reward_batch = reward[batch_idxs]
+                next_state_batch = next_state[batch_idxs]
+            else:
+                # only one element!
+                state_batch = state
+                action_batch = action
+                reward_batch = reward
+                next_state_batch = next_state
+
+            # Convert to tensors
+            state_batch = tf.convert_to_tensor(state_batch)
+            action_batch = tf.convert_to_tensor(action_batch)
+            reward_batch = tf.convert_to_tensor(reward_batch)
+            reward_batch = tf.cast(reward_batch, dtype="float32")
+            next_state_batch = tf.convert_to_tensor(next_state_batch)
+
+            self.update(state_batch, action_batch, reward_batch, next_state_batch)
+
+        # Apply update rule after going through the whole dataset.
         DRLA.update_target(self.target_actor_model, self.actor_model, self.tau)
         DRLA.update_target(self.target_critic_model, self.critic_model, self.tau)
 

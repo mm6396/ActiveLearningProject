@@ -2,6 +2,7 @@
 # Jeremy Lim
 # jlim@wpi.edu
 # Quick testbench framework, to help guide us in implementation.
+import os
 
 # Basically, once this testbench is up and running, we can tweak/re-tweak DRLA using the training set to optimize performance.
 # NOTE: NOT a good idea to tweak the classifier, only the AL method!!!
@@ -18,6 +19,8 @@ LEARNING_RATE = 0.0001
 
 CLASS_FRACTION = 0.1
 
+import pickle
+
 import numpy as np
 import copy
 from MetricPlotter import MetricPlotter
@@ -27,9 +30,11 @@ from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
-# import SplitSkinCancerMnist
+
 from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
 
+import sklearn
+from sklearn import metrics
 
 def convert_to_one_hot(labels, num_classes):
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
@@ -71,7 +76,7 @@ class ResNet50Classifier:
 
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
-        trainable_input = tf.keras.layers.Input((avg_pool.shape))
+        trainable_input = tf.keras.layers.Input((avg_pool.shape[-1]))
         trainable_output = Dense(2, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
@@ -114,17 +119,10 @@ def load_data(path):
 def get_skin_mnist_x_y(dataFrame):
     return dataFrame.path.values, dataFrame.label.values
 
-def main():
-    print("Starting the main function.\n")
-    
-    path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
 
-    # skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
-    # skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
-    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
-    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name):
 
-    x_train, y_train_numerical, x_val, y_val_numerical = load_data(path)
+
     x_train = resize_images(x_train)  
     y_train = convert_to_one_hot(y_train_numerical, num_classes=2)
 
@@ -148,6 +146,7 @@ def main():
                     ]
     
     metric_plotter = MetricPlotter()
+    # val_metric_plotter = MetricPlotter()
 
     for strategy in strategies:
         print(f"------------------- << {strategy} >> --------------------------")
@@ -177,10 +176,11 @@ def main():
         remaining_indices = np.where(labeled_mask==False)[0]
 
         while len(remaining_indices) > 0:
-            print(f"The Strategy is: {strategy} \n")
+            print("Remaining samples: " + str(len(remaining_indices)))
+            # print(f"The Strategy is: {strategy} \n")
             # Choose one new samples from unlabeled pool to label it
             predictions = model.predict(np.array(x_train))  # Predict on all data
-            print(f"dimension labeled_mask is : {labeled_mask.shape}")
+            # print(f"dimension labeled_mask is : {labeled_mask.shape}")
             old_mask = copy.deepcopy(labeled_mask)
             
             
@@ -197,19 +197,86 @@ def main():
 
             # Evaluate the classifier (new_perfomance)
             new_performance = model.evaluate(x_val, y_val)
+
             new_state = model.predict(np.array(x_train))
             print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
-            
-            
-            metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
+
+            # Metrics
+            val_predictions = model.predict(x_val)
+            micro_f1_val = sklearn.metrics.f1_score(np.argmax(y_val, axis=1), np.argmax(val_predictions, axis=1), average="micro")
+            macro_f1_val = sklearn.metrics.f1_score(np.argmax(y_val, axis=1), np.argmax(val_predictions, axis=1), average="macro")
+
+            micro_f1_train = sklearn.metrics.f1_score(np.argmax(y_train, axis=1), np.argmax(new_state, axis=1), average="micro")
+            macro_f1_train = sklearn.metrics.f1_score(np.argmax(y_train, axis=1), np.argmax(new_state, axis=1), average="macro")
+
+            train_performance = model.evaluate(x_train, y_train)
+
+            # metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1], )
+            metric_plotter.save_epoch_metrics(None, None,
+                                              train_loss=train_performance[0],
+                                              train_accuracy=train_performance[1],
+                                              train_micro_f1=micro_f1_train,
+                                              train_macro_f1=macro_f1_train,
+                                              val_loss=new_performance[0],
+                                              val_accuracy=new_performance[1],
+                                              val_micro_f1=micro_f1_val,
+                                              val_macro_f1=macro_f1_val)
+
             strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
 
             # Update the remaining indices
             remaining_indices = np.where(labeled_mask==False)[0]
 
-        print(f"Active learning with {strategy} completed.")
+        # print(f"Active learning with {strategy} completed.")
         metric_plotter.display_all_plots()
-        print("Done")
+
+        # Save all plots separately
+        metric_plotter.save_plots(metric_plotter.get_metric_names())
+
+        # train/val loss for judging fit/overfit issues
+        metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
+
+        with open(run_name + ".pickle", 'ab') as f:
+            pickle.dump(metric_plotter, f)
+
+        print("Run : " + run_name + " done.")
+
+
+def main():
+    print("Test patch camelyon")
+
+    histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
+    x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
+
+    test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA")
+
+    print("Test Skin mnist")
+
+    # Fixing path issues
+    # Change to the Model_Implementation directory, wherever it is on your system
+    old_path = os.getcwd()
+    os.chdir("Model_Implementation")
+    import SplitSkinCancerMnist
+
+
+    skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
+    skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
+    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+
+    # move back, to keep from messing other code up
+    os.chdir(old_path)
+
+
+    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST_DRLA")
+
+    print("Test diabetic retinopathy")
+
+
+    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Db_R_DRLA")
+
+    print("Done")
+
 
 if __name__ == "__main__":
     main()
