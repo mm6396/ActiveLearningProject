@@ -98,7 +98,7 @@ class EntropyStrategy(ActiveLearningMethod):
         action_arr = EntropyStrategy.entropy(state)
 
         # Remember the correct indices!
-        sample_idxs = np.arange(0, sample_num.shape[0], 1, dtype=np.int64)
+        sample_idxs = np.arange(0, state.shape[0], 1, dtype=np.int64)
 
         # Ignore samples that were labeled already.
         action_arr = action_arr[np.logical_not(labeled_mask)]
@@ -122,7 +122,7 @@ class RandomSamplingStrategy(ActiveLearningMethod):
     def __init__(self):
         super().__init__()
 
-def choose_n_samples(self, sample_num, state, labeled_mask):
+    def choose_n_samples(self, sample_num, state, labeled_mask):
         
         
         unlabeled_indices = np.where(labeled_mask == 0)[0]
@@ -135,8 +135,8 @@ def choose_n_samples(self, sample_num, state, labeled_mask):
 
         return selected_indices
 
-def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
-    pass
+    def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
+       pass
 
 
 # Adish
@@ -280,7 +280,7 @@ class DRLA(ActiveLearningMethod):
         flat_state = layers.Flatten()(state_input)
         action_input = layers.Input(shape=(self.num_samples, 1), name="action_input")  # Whether a sample was labeled or not.
         flat_action = layers.Flatten()(action_input)
-        concat_all = layers.Concatenate()(flat_state, flat_action)
+        concat_all = layers.Concatenate()([flat_state, flat_action])
         out = layers.Dense(self.hidden_dense_units, activation="relu")(concat_all)
         out = layers.Dense(self.hidden_dense_units, activation="relu")(out)
         out = layers.Dense(1, activation="linear", )(out)  # JL - in our problem, the Q value will never be below zero,

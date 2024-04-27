@@ -17,6 +17,7 @@ N_S =1 # one sample each time from unlabeled data
 
 
 import numpy as np
+import copy
 import tensorflow as tf
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.applications.resnet50 import ResNet50
@@ -24,7 +25,7 @@ from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
 
-from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy
+from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA 
 def convert_to_one_hot(labels, num_classes):
     
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
@@ -42,15 +43,24 @@ class ResNet50Classifier:
         self.model = self._build_model()
 
     def _build_model(self):
-        base_model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape)
-        x = GlobalAveragePooling2D()(base_model.output)
-        predictions = Dense(self.num_class, activation='softmax')(x)
-        model = Model(inputs=base_model.input, outputs=predictions)
+        base_model = ResNet50(weights='imagenet', include_top=True, input_shape=self.input_shape)
+        base_model.layers.pop()  # removing the original output layer
+        x = base_model.layers[-1].output
+        output = Dense(2, activation='softmax')(x)
+        
+        model = Model(inputs=base_model.input, outputs=output)
         model.compile(optimizer=Adam(learning_rate=self.lr), loss='categorical_crossentropy', metrics=['accuracy'])
         return model
     
+    def fit(self, x, y, epochs, batch_size, validation_data):
+        return self.model.fit(x, y, epochs=epochs, batch_size=batch_size, validation_data=validation_data)
+    
     def predict(self, x):
         return self.model.predict(x)
+    
+    
+    def evaluate(self, x, y):
+        return self.model.evaluate(x, y)
 
 def load_data(path):
     with h5py.File(path + 'train250_train_x.h5', 'r') as file:
@@ -79,8 +89,10 @@ def main():
     x_val = resize_images(x_val)
     y_val = convert_to_one_hot(y_val, num_classes=2)
 
-    strategies = [EntropyStrategy(), RandomSamplingStrategy(), LeastConfidenceStrategy()  
-                    #DRLA
+    strategies = [ 
+                  # EntropyStrategy(),
+                #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
+                    DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
                     ]
 
     for strategy in strategies:
@@ -105,13 +117,14 @@ def main():
 
         while len(remaining_indices) > 0:
             print(f"The Strategy is: {strategy} \n")
-
             # Choose one new samples from unlabeled pool to label it
-            predictions = model.predict(np.array(x_train)[remaining_indices])  # Predict on unlabeled data
+            predictions = model.predict(np.array(x_train))  # Predict on all data
             print(f"dimension labeled_mask is : {labeled_mask.shape}")
+            old_mask = copy.deepcopy(labeled_mask)
+            
             
             selected_indices = strategy.choose_n_samples(N_S, predictions, labeled_mask)
-            labeled_mask[remaining_indices[selected_indices]] = True
+            labeled_mask[selected_indices] = True
 
             # Update label mask
             labeled_indices = np.where(labeled_mask==True)[0]
@@ -123,7 +136,10 @@ def main():
 
             # Evaluate the classifier (new_perfomance)
             new_performance = model.evaluate(x_val, y_val)
-            print(f"new performance: {new_performance}")
+            new_state = model.predict(np.array(x_train))
+            print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
+
+            strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
 
             # Update the remaining indices
             remaining_indices = np.where(labeled_mask==False)[0]
