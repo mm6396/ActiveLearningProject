@@ -16,6 +16,8 @@ LEARNING_RATE = 0.0001
 #regarding the Jeremy's Comment. I will modify it 
 
 
+CLASS_FRACTION = 0.1
+
 import numpy as np
 import copy
 from MetricPlotter import MetricPlotter
@@ -25,7 +27,7 @@ from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
-import SplitSkinCancerMnist
+# import SplitSkinCancerMnist
 from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
 
 
@@ -80,7 +82,7 @@ class ResNet50Classifier:
     def precompute_input(self, x):
         # Use the frozen model trunk to precompute features for all x
         # Better than re-running the model every time...
-        return self.base_model.predict(x, batch_size=32)
+        return self.base_model.predict(x, batch_size=self.precompute_batch_size)
 
     def fit(self, x, y, epochs, batch_size, validation_data):
         # NOTE: only fit precomputed x!
@@ -115,19 +117,19 @@ def get_skin_mnist_x_y(dataFrame):
 def main():
     print("Starting the main function.\n")
     
-    path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
+    path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
 
-    skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
-    skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
-    skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
-    skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+    # skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
+    # skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
+    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
 
-    x_train, y_train, x_val, y_val = load_data(path)
+    x_train, y_train_numerical, x_val, y_val_numerical = load_data(path)
     x_train = resize_images(x_train)  
-    y_train = convert_to_one_hot(y_train, num_classes=2)
+    y_train = convert_to_one_hot(y_train_numerical, num_classes=2)
 
     x_val = resize_images(x_val)
-    y_val = convert_to_one_hot(y_val, num_classes=2)
+    y_val = convert_to_one_hot(y_val_numerical, num_classes=2)
 
     # JL - moving model outside of loop.
     classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=2)
@@ -151,16 +153,25 @@ def main():
         print(f"------------------- << {strategy} >> --------------------------")
 
         num_samples = len(x_train)
-        initial_samples = 200  
 
-        
+        # 10% of each class, for binary case.
+        negative_class_idx = np.where(np.squeeze(y_train_numerical) == 0)[0]
+        negative_class_count = negative_class_idx.shape[0]
+        positive_class_idx = np.where(np.squeeze(y_train_numerical) == 1)[0]
+        positive_class_count = positive_class_idx.shape[0]
+
+        negative_class_idx = np.random.choice(negative_class_idx, int(negative_class_count * CLASS_FRACTION), replace=False)
+        positive_class_idx = np.random.choice(positive_class_idx, int(positive_class_count * CLASS_FRACTION), replace=False)
+
+        initial_indices = np.concatenate([negative_class_idx, positive_class_idx], axis=0)
+
         labeled_mask = np.zeros(num_samples, dtype=bool)
-        initial_indices = np.random.choice(num_samples, initial_samples, replace=False)
+
         labeled_mask[initial_indices] = True
 
         # Initial labeled data
-        x_labeled = np.array(x_train)[initial_indices]
-        y_labeled = np.array(y_train)[initial_indices]
+        # x_labeled = np.array(x_train)[initial_indices]
+        # y_labeled = np.array(y_train)[initial_indices]
 
         # Unlabeled data indices
         remaining_indices = np.where(labeled_mask==False)[0]
@@ -198,6 +209,7 @@ def main():
 
         print(f"Active learning with {strategy} completed.")
         metric_plotter.display_all_plots()
+        print("Done")
 
 if __name__ == "__main__":
     main()
