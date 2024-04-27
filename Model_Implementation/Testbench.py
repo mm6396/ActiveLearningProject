@@ -69,7 +69,7 @@ class ResNet50Classifier:
 
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
-        trainable_input = tf.keras.layers.Input((avg_pool.shape))
+        trainable_input = tf.keras.layers.Input((avg_pool.shape[1],))
         trainable_output = Dense(2, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
