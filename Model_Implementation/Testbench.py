@@ -78,8 +78,6 @@ def load_data(path):
 
 
 def get_skin_mnist_x_y(dataFrame):
-    #train_x = dataFrame.path.values
-    #train_y = dataFrame.label.values
     return dataFrame.path.values, dataFrame.label.values
 
 def main():
