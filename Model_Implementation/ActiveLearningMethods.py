@@ -98,7 +98,7 @@ class EntropyStrategy(ActiveLearningMethod):
         action_arr = EntropyStrategy.entropy(state)
 
         # Remember the correct indices!
-        sample_idxs = np.arange(0, sample_num.shape[0], 1, dtype=np.int64)
+        sample_idxs = np.arange(0, state.shape[0], 1, dtype=np.int64)
 
         # Ignore samples that were labeled already.
         action_arr = action_arr[np.logical_not(labeled_mask)]
@@ -122,7 +122,7 @@ class RandomSamplingStrategy(ActiveLearningMethod):
     def __init__(self):
         super().__init__()
 
-def choose_n_samples(self, sample_num, state, labeled_mask):
+    def choose_n_samples(self, sample_num, state, labeled_mask):
         
         
         unlabeled_indices = np.where(labeled_mask == 0)[0]
@@ -135,8 +135,8 @@ def choose_n_samples(self, sample_num, state, labeled_mask):
 
         return selected_indices
 
-def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
-    pass
+    def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
+       pass
 
 
 # Adish
@@ -246,7 +246,7 @@ class DRLA(ActiveLearningMethod):
         flatten_input = layers.Flatten()(inputs)
         out = layers.Dense(self.hidden_dense_units, activation="relu")(flatten_input)
         out = layers.Dense(self.hidden_dense_units, activation="relu")(out)
-        outputs = layers.Dense(1, activation="sigmoid",)(out)
+        outputs = layers.Dense(self.num_samples, activation="sigmoid",)(out)
 
         # JL - the paper says 3 fully connected layers. Do we count the last sigmoid?
 
@@ -280,7 +280,7 @@ class DRLA(ActiveLearningMethod):
         flat_state = layers.Flatten()(state_input)
         action_input = layers.Input(shape=(self.num_samples, 1), name="action_input")  # Whether a sample was labeled or not.
         flat_action = layers.Flatten()(action_input)
-        concat_all = layers.Concatenate()(flat_state, flat_action)
+        concat_all = layers.Concatenate()([flat_state, flat_action])
         out = layers.Dense(self.hidden_dense_units, activation="relu")(concat_all)
         out = layers.Dense(self.hidden_dense_units, activation="relu")(out)
         out = layers.Dense(1, activation="linear", )(out)  # JL - in our problem, the Q value will never be below zero,
@@ -373,10 +373,10 @@ class DRLA(ActiveLearningMethod):
             # We use different np.arrays for each tuple element
 
             # JL - we have a unique shape for our state space, we concatenate the provided tuple.
-            self.state_buffer = np.zeros(self.buffer_capacity + state_shape_tuple)
+            self.state_buffer = np.zeros((self.buffer_capacity,) + state_shape_tuple)
             self.action_buffer = np.zeros((self.buffer_capacity, n_samples))
             self.reward_buffer = np.zeros((self.buffer_capacity, 1))
-            self.next_state_buffer = np.zeros(self.buffer_capacity + state_shape_tuple)  # JL - inefficient!!!
+            self.next_state_buffer = np.zeros((self.buffer_capacity,) + state_shape_tuple)  # JL - inefficient!!!
 
         # Takes (s,a,r,s') observation tuple as input
         def record(self, obs_tuple):
@@ -418,11 +418,11 @@ class DRLA(ActiveLearningMethod):
         state, action, reward, next_state = self.replay_buffer.get_buffer_arrs()
 
         # Convert to tensors
-        state_batch = keras.ops.convert_to_tensor(state)
-        action_batch = keras.ops.convert_to_tensor(action)
-        reward_batch = keras.ops.convert_to_tensor(reward)
-        reward_batch = keras.ops.cast(reward_batch, dtype="float32")
-        next_state_batch = keras.ops.convert_to_tensor(next_state)
+        state_batch = tf.convert_to_tensor(state)
+        action_batch = tf.convert_to_tensor(action)
+        reward_batch = tf.convert_to_tensor(reward)
+        reward_batch = tf.cast(reward_batch, dtype="float32")
+        next_state_batch = tf.convert_to_tensor(next_state)
 
         self.update(state_batch, action_batch, reward_batch, next_state_batch)
 
@@ -449,7 +449,7 @@ class DRLA(ActiveLearningMethod):
                 [next_state_batch, target_actions], training=True
             )
             critic_value = self.critic_model([state_batch, action_batch], training=True)
-            critic_loss = keras.ops.mean(keras.ops.square(y - critic_value))
+            critic_loss = tf.reduce_mean(tf.square(y - critic_value))
 
         critic_grad = tape.gradient(critic_loss, self.critic_model.trainable_variables)
         self.critic_optimizer.apply_gradients(
@@ -461,7 +461,7 @@ class DRLA(ActiveLearningMethod):
             critic_value = self.critic_model([state_batch, actions], training=True)
             # Used `-value` as we want to maximize the value given
             # by the critic for our actions
-            actor_loss = -keras.ops.mean(critic_value)
+            actor_loss = -tf.reduce_mean(critic_value)
 
         actor_grad = tape.gradient(actor_loss, self.actor_model.trainable_variables)
         self.actor_optimizer.apply_gradients(
@@ -486,7 +486,8 @@ class DRLA(ActiveLearningMethod):
     exploration.
     """
     def policy(self, state, noise_object):
-        sampled_actions = keras.ops.squeeze(self.actor_model(state))
+        # sampled_actions = keras.ops.squeeze(self.actor_model(state))
+        sampled_actions = tf.squeeze(self.actor_model(np.expand_dims(state, axis=0)))
         noise = noise_object()
         # Adding noise to action
         sampled_actions = sampled_actions.numpy() + noise
@@ -515,7 +516,7 @@ class DRLA(ActiveLearningMethod):
         action_arr = self.policy(state, self.ou_noise)
 
         # Remember the correct indices!
-        sample_idxs = np.arange(0, sample_num.shape[0], 1, dtype=np.int64)
+        sample_idxs = np.arange(0, state.shape[0], 1, dtype=np.int64)
 
         # Ignore samples that were labeled already.
         action_arr = action_arr[np.logical_not(labeled_mask)]
@@ -549,12 +550,13 @@ class DRLA(ActiveLearningMethod):
         # 2) Update the actor with one gradient update. Equation 4 from the paper
         # 3) Update target actor/critic with Equation 7 from the paper.
 
+        print("Actor/Critic update start!")
 
         # If labels somehow decrease, there's a probem!
         assert np.count_nonzero(new_state_labeled_mask) > np.count_nonzero(previous_state_labeled_mask), "Somehow, samples got un-labeled!"
 
         # Calculate reward on all revealed samples.
-        reward = DRLA.reward(new_state, self.truth_labels[new_state_labeled_mask])
+        reward = DRLA.reward(new_state[new_state_labeled_mask], self.truth_labels[new_state_labeled_mask])
 
         # Calculate action be taking the difference between the masks
         action_mask = np.logical_xor(new_state_labeled_mask, previous_state_labeled_mask)
@@ -566,4 +568,7 @@ class DRLA(ActiveLearningMethod):
         self.replay_buffer.record((previous_state, action, reward, new_state))
 
         self.learn_actor_critic()
+
+        print("Actor/Critic update done!")
+
         # Done!
