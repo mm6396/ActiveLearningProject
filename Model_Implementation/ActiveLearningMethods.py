@@ -115,7 +115,7 @@ class EntropyStrategy(ActiveLearningMethod):
     def update_on_new_state(self, new_state, new_state_labeled_mask, previous_state, previous_state_labeled_mask):
         pass
 
-# zaher
+# Adish
 # random
 
 class RandomSamplingStrategy(ActiveLearningMethod):
@@ -151,7 +151,7 @@ class LeastConfidenceStrategy(ActiveLearningMethod):
         Selects samples where the model has the least confidence in its predictions.
         """
         # Calculate the confidence 
-        confidences = np.max(state, axis=1)
+        confidences = 1 - np.max(state, axis=1)
         # Finds indices of unlabeled samples
         unlabeled_indices = np.where(labeled_mask == 0)[0]
         
