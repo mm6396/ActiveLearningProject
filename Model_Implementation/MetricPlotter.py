@@ -116,7 +116,7 @@ class MetricPlotter:
             plt.xlabel("Epochs")
 
             # add in epoch time real quick!
-            plt.savefig(os.path.join(save_dir, metric_name + "_" + datetime.datetime.utcnow().strftime("%s") + ".png"))
+            plt.savefig(os.path.join(save_dir, metric_name + "_" + datetime.datetime.now().strftime("%m_%d_%Y_%H_%M_%S") + ".png"))
             plt.close()
 
     # Save plots to image files. Like display_plot_simultaneous.

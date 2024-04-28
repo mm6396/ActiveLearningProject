@@ -2,6 +2,9 @@
 # Jeremy Lim
 # jlim@wpi.edu
 # Quick testbench framework, to help guide us in implementation.
+import os
+
+import sklearn
 
 # Basically, once this testbench is up and running, we can tweak/re-tweak DRLA using the training set to optimize performance.
 # NOTE: NOT a good idea to tweak the classifier, only the AL method!!!
@@ -11,11 +14,13 @@ BATCH_SIZE = 32
 N_S =1 # one sample each time from unlabeled data
 # EPOCHS = 5
 LEARNING_RATE = 0.0001
-# NUM_CLASSES = 2
+NUM_CLASSES = 7
 # INPUT_SHAPE = (224, 224, 3)
-#regarding the Jeremy's Comment. I will modify it 
+#regarding the Jeremy's Comment. I will modify it
 
+CLASS_FRACTION = 0.1
 
+import pickle
 import numpy as np
 import copy
 from MetricPlotter import MetricPlotter
@@ -26,8 +31,8 @@ from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
 import SplitSkinCancerMnist
-from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
-
+from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy #, DRLA
+from PIL import Image
 
 def convert_to_one_hot(labels, num_classes):
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
@@ -37,6 +42,144 @@ def resize_images(images):
     ###Resize images to the standard for ResNet50.
     return tf.image.resize(images, [224, 224])
 
+
+def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name, num_classes):
+    x_train = resize_images(x_train)
+    y_train = convert_to_one_hot(y_train_numerical, num_classes=num_classes)
+
+    x_val = resize_images(x_val)
+    y_val = convert_to_one_hot(y_val_numerical, num_classes=num_classes)
+
+    # JL - moving model outside of loop.
+    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=num_classes)
+    model = classifier
+
+    # This step might take a little bit, but it only runs once!
+    print("Precomputing feature maps for frozen resnet layers...")
+    x_train = model.precompute_input(x_train)
+    x_val = model.precompute_input(x_val)
+    print("Done Precomputing feature maps!")
+
+    strategies = [
+         EntropyStrategy(),
+         RandomSamplingStrategy(), LeastConfidenceStrategy(),
+        #DRLA(x_train.shape[0], num_classes, y_train)  # n_samples, k_classes, n_truth_labels
+    ]
+
+    metric_plotter = MetricPlotter()
+    # val_metric_plotter = MetricPlotter()
+
+    for strategy in strategies:
+        print(f"------------------- << {strategy} >> --------------------------")
+
+        num_samples = len(x_train)
+
+        # 10% of each class, for binary case.
+        negative_class_idx = np.where(np.squeeze(y_train_numerical) == 0)[0]
+        negative_class_count = negative_class_idx.shape[0]
+        positive_class_idx = np.where(np.squeeze(y_train_numerical) == 1)[0]
+        positive_class_count = positive_class_idx.shape[0]
+
+        negative_class_idx = np.random.choice(negative_class_idx, int(negative_class_count * CLASS_FRACTION),
+                                              replace=False)
+        positive_class_idx = np.random.choice(positive_class_idx, int(positive_class_count * CLASS_FRACTION),
+                                              replace=False)
+
+        initial_indices = np.concatenate([negative_class_idx, positive_class_idx], axis=0)
+
+        labeled_mask = np.zeros(num_samples, dtype=bool)
+
+        labeled_mask[initial_indices] = True
+
+        # Initial labeled data
+        # x_labeled = np.array(x_train)[initial_indices]
+        # y_labeled = np.array(y_train)[initial_indices]
+
+        # Unlabeled data indices
+        remaining_indices = np.where(labeled_mask == False)[0]
+
+        while len(remaining_indices) > 0:
+            print("Remaining samples: " + str(len(remaining_indices)))
+            # print(f"The Strategy is: {strategy} \n")
+            # Choose one new samples from unlabeled pool to label it
+            predictions = model.predict(np.array(x_train))  # Predict on all data
+            # print(f"dimension labeled_mask is : {labeled_mask.shape}")
+            old_mask = copy.deepcopy(labeled_mask)
+
+            selected_indices = strategy.choose_n_samples(N_S, predictions, labeled_mask)
+            labeled_mask[selected_indices] = True
+
+            # Update label mask
+            labeled_indices = np.where(labeled_mask == True)[0]
+            x_labeled = np.array(x_train)[labeled_indices]
+            y_labeled = np.array(y_train)[labeled_indices]
+
+            # Train the classifier with all labeled data
+            model.fit(x_labeled, y_labeled, epochs=1, validation_data=(x_val, y_val), batch_size=BATCH_SIZE)
+
+            # Evaluate the classifier (new_perfomance)
+            new_performance = model.evaluate(x_val, y_val)
+
+            new_state = model.predict(np.array(x_train))
+            print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
+
+            # Metrics
+            val_predictions = model.predict(x_val)
+            micro_f1_val = sklearn.metrics.f1_score(np.argmax(y_val, axis=1), np.argmax(val_predictions, axis=1),
+                                                    average="micro")
+            macro_f1_val = sklearn.metrics.f1_score(np.argmax(y_val, axis=1), np.argmax(val_predictions, axis=1),
+                                                    average="macro")
+
+            micro_f1_train = sklearn.metrics.f1_score(np.argmax(y_train, axis=1), np.argmax(new_state, axis=1),
+                                                      average="micro")
+            macro_f1_train = sklearn.metrics.f1_score(np.argmax(y_train, axis=1), np.argmax(new_state, axis=1),
+                                                      average="macro")
+
+            train_performance = model.evaluate(x_train, y_train)
+
+            # metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1], )
+            metric_plotter.save_epoch_metrics(None, None,
+                                              train_loss=train_performance[0],
+                                              train_accuracy=train_performance[1],
+                                              train_micro_f1=micro_f1_train,
+                                              train_macro_f1=macro_f1_train,
+                                              val_loss=new_performance[0],
+                                              val_accuracy=new_performance[1],
+                                              val_micro_f1=micro_f1_val,
+                                              val_macro_f1=macro_f1_val)
+
+            strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
+
+            # Update the remaining indices
+            remaining_indices = np.where(labeled_mask == False)[0]
+
+        # print(f"Active learning with {strategy} completed.")
+        metric_plotter.display_all_plots()
+
+        os.makedirs(run_name, exist_ok=True)
+        # Save all plots separately
+        metric_plotter.save_plots(metric_plotter.get_metric_names(), save_dir=run_name)
+
+        # train/val loss for judging fit/overfit issues
+        metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
+
+        with open(run_name + ".pickle", 'ab') as f:
+            pickle.dump(metric_plotter, f)
+
+        print("Run : " + run_name + " done.")
+
+
+def load_image_paths(pathslist):
+    arr_output = []
+    for p in pathslist:
+        img = np.asarray(Image.open(p))
+
+        img = np.array(resize_images(img))
+
+        # Resizing when I load, keep memory use down
+        arr_output.append(img)
+
+    return np.array(arr_output)
 
 #These metrics will be implemented
 # def F1_Micro(y_actual, y_pred):
@@ -69,8 +212,8 @@ class ResNet50Classifier:
 
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
-        trainable_input = tf.keras.layers.Input((avg_pool.shape))
-        trainable_output = Dense(2, activation='softmax')(trainable_input)
+        trainable_input = tf.keras.layers.Input((avg_pool.shape[1],))
+        trainable_output = Dense(self.num_class, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
         model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
@@ -115,89 +258,31 @@ def get_skin_mnist_x_y(dataFrame):
 def main():
     print("Starting the main function.\n")
     
-    path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
+    #path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
+    #x_train, y_train, x_val, y_val = load_data(path)
 
+    print("Test Skin mnist")
+    # Get Skin Mnist data
     skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
     skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
-    skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
-    skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
 
-    x_train, y_train, x_val, y_val = load_data(path)
-    x_train = resize_images(x_train)  
-    y_train = convert_to_one_hot(y_train, num_classes=2)
+    skin_train_train_x = load_image_paths(skin_train_train_x)
+    skin_train_val_x = load_image_paths(skin_train_val_x)
 
-    x_val = resize_images(x_val)
-    y_val = convert_to_one_hot(y_val, num_classes=2)
+    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y,
+                    run_name="Skin_MNIST_DRLA", num_classes=7)
 
-    # JL - moving model outside of loop.
-    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=2)
-    model = classifier
 
-    # This step might take a little bit, but it only runs once!
-    print("Precomputing feature maps for frozen resnet layers...")
-    x_train = model.precompute_input(x_train)
-    x_val = model.precompute_input(x_val)
-    print("Done Precomputing feature maps!")
+    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+    #skin_test_train_x = resize_images(skin_test_train_x)
+    #skin_test_train_y = convert_to_one_hot(skin_test_train_y, num_classes=NUM_CLASSES)
+    #skin_test_val_x = resize_images(skin_test_val_x)
+    #skin_test_val_y = convert_to_one_hot(skin_test_val_y, num_classes=NUM_CLASSES)
 
-    strategies = [ 
-                  # EntropyStrategy(),
-                #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
-                    DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
-                    ]
-    
-    metric_plotter = MetricPlotter()
-
-    for strategy in strategies:
-        print(f"------------------- << {strategy} >> --------------------------")
-
-        num_samples = len(x_train)
-        initial_samples = 200  
-
-        
-        labeled_mask = np.zeros(num_samples, dtype=bool)
-        initial_indices = np.random.choice(num_samples, initial_samples, replace=False)
-        labeled_mask[initial_indices] = True
-
-        # Initial labeled data
-        x_labeled = np.array(x_train)[initial_indices]
-        y_labeled = np.array(y_train)[initial_indices]
-
-        # Unlabeled data indices
-        remaining_indices = np.where(labeled_mask==False)[0]
-
-        while len(remaining_indices) > 0:
-            print(f"The Strategy is: {strategy} \n")
-            # Choose one new samples from unlabeled pool to label it
-            predictions = model.predict(np.array(x_train))  # Predict on all data
-            print(f"dimension labeled_mask is : {labeled_mask.shape}")
-            old_mask = copy.deepcopy(labeled_mask)
-            
-            
-            selected_indices = strategy.choose_n_samples(N_S, predictions, labeled_mask)
-            labeled_mask[selected_indices] = True
-
-            # Update label mask
-            labeled_indices = np.where(labeled_mask==True)[0]
-            x_labeled = np.array(x_train)[labeled_indices]
-            y_labeled = np.array(y_train)[labeled_indices]
-
-            # Train the classifier with all labeled data
-            model.fit(x_labeled, y_labeled, epochs=1, validation_data=(x_val, y_val), batch_size=BATCH_SIZE)
-
-            # Evaluate the classifier (new_perfomance)
-            new_performance = model.evaluate(x_val, y_val)
-            new_state = model.predict(np.array(x_train))
-            print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
-            
-            
-            metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
-            strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
-
-            # Update the remaining indices
-            remaining_indices = np.where(labeled_mask==False)[0]
-
-        print(f"Active learning with {strategy} completed.")
-        metric_plotter.display_all_plots()
+    print("Done!")
 
 if __name__ == "__main__":
     main()
