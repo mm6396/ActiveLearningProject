@@ -2,7 +2,7 @@
 # Jeremy Lim
 # jlim@wpi.edu
 # Quick testbench framework, to help guide us in implementation.
-import os
+import sys, os
 
 # Basically, once this testbench is up and running, we can tweak/re-tweak DRLA using the training set to optimize performance.
 # NOTE: NOT a good idea to tweak the classifier, only the AL method!!!
@@ -31,10 +31,14 @@ from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
 
-from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
+import PIL
+from PIL import Image
+
+from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy, DRLA
 
 import sklearn
 from sklearn import metrics
+from sklearn import preprocessing
 
 def convert_to_one_hot(labels, num_classes):
     one_hot_labels = tf.keras.utils.to_categorical(labels, num_classes=num_classes)
@@ -61,6 +65,7 @@ class ResNet50Classifier:
         self.base_model, self.model = self._build_models()
 
         self.precompute_batch_size = 32  # Just to manage this prediction step, so it doesn't consume too much RAM.
+        self.model_batch_size = 32  # Manage most of the other sets, don't try all images simultaneously!
 
     def _build_models(self):
 
@@ -77,7 +82,7 @@ class ResNet50Classifier:
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
         trainable_input = tf.keras.layers.Input((avg_pool.shape[-1]))
-        trainable_output = Dense(2, activation='softmax')(trainable_input)
+        trainable_output = Dense(self.num_class, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
         model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
@@ -95,12 +100,12 @@ class ResNet50Classifier:
     
     def predict(self, x):
         # NOTE: only fit precomputed x!
-        return self.model.predict(x)
+        return self.model.predict(x, batch_size=self.model_batch_size)
     
     
     def evaluate(self, x, y):
         # NOTE: only fit precomputed x!
-        return self.model.evaluate(x, y)
+        return self.model.evaluate(x, y, batch_size=self.model_batch_size)
 
 def load_data(path):
     with h5py.File(path + 'train250_train_x.h5', 'r') as file:
@@ -120,17 +125,17 @@ def get_skin_mnist_x_y(dataFrame):
     return dataFrame.path.values, dataFrame.label.values
 
 
-def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name):
+def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name, num_classes):
 
 
     x_train = resize_images(x_train)  
-    y_train = convert_to_one_hot(y_train_numerical, num_classes=2)
+    y_train = convert_to_one_hot(y_train_numerical, num_classes=num_classes)
 
     x_val = resize_images(x_val)
-    y_val = convert_to_one_hot(y_val_numerical, num_classes=2)
+    y_val = convert_to_one_hot(y_val_numerical, num_classes=num_classes)
 
     # JL - moving model outside of loop.
-    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=2)
+    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=num_classes)
     model = classifier
 
     # This step might take a little bit, but it only runs once!
@@ -142,7 +147,7 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
     strategies = [ 
                   # EntropyStrategy(),
                 #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
-                    DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
+                    DRLA(x_train.shape[0] , num_classes , y_train)  # n_samples, k_classes, n_truth_labels
                     ]
     
     metric_plotter = MetricPlotter()
@@ -230,8 +235,9 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
         # print(f"Active learning with {strategy} completed.")
         metric_plotter.display_all_plots()
 
+        os.makedirs(run_name, exist_ok=True)
         # Save all plots separately
-        metric_plotter.save_plots(metric_plotter.get_metric_names())
+        metric_plotter.save_plots(metric_plotter.get_metric_names(), save_dir=run_name)
 
         # train/val loss for judging fit/overfit issues
         metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
@@ -242,13 +248,29 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
         print("Run : " + run_name + " done.")
 
 
+def load_image_paths(pathslist):
+    arr_output = []
+    for p in pathslist:
+        img = np.asarray(Image.open(p))
+
+        img = np.array(resize_images(img))
+
+        # Resizing when I load, keep memory use down
+        arr_output.append(img)
+
+    return np.array(arr_output)
+
+
+# def labels_to_int(labels_arr):
+#     # Make numerical categories to
+
 def main():
-    print("Test patch camelyon")
-
-    histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
-    x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
-
-    test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA")
+    # print("Test patch camelyon")
+    #
+    # histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
+    # x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
+    #
+    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
 
     print("Test Skin mnist")
 
@@ -264,16 +286,33 @@ def main():
     # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
     # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
 
+    # Load imagery
+    skin_train_train_x = load_image_paths(skin_train_train_x)
+    skin_train_val_x = load_image_paths(skin_train_val_x)
+
     # move back, to keep from messing other code up
     os.chdir(old_path)
 
+    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST_DRLA", num_classes=7)
 
-    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST_DRLA")
-
-    print("Test diabetic retinopathy")
-
-
-    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Db_R_DRLA")
+    # print("Test diabetic retinopathy")
+    #
+    # # Add parent directory to path, so we can import Diabetic_Retinopathy properly.
+    # sys.path.append("/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject")
+    # import Diabetic_Retinopathy
+    #
+    # # flip the mapping!
+    # mapping_dict = {}
+    # for key in Diabetic_Retinopathy.diagnosis_dict:
+    #     mapping_dict[Diabetic_Retinopathy.diagnosis_dict[key]] = key
+    #
+    # train1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.train1_labels]
+    # test1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.test1_labels]
+    #
+    # test_on_dataset(Diabetic_Retinopathy.train1_images,
+    #                 train1_lbls,
+    #                 Diabetic_Retinopathy.test1_images,
+    #                 test1_lbls, run_name="Db_R_DRLA", num_classes=5)
 
     print("Done")
 
