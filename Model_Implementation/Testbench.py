@@ -19,13 +19,14 @@ LEARNING_RATE = 0.0001
 import numpy as np
 import copy
 from MetricPlotter import MetricPlotter
+from sklearn.metrics import f1_score
 import tensorflow as tf
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.layers import GlobalAveragePooling2D, Dense
 from tensorflow.keras.models import Model
 import h5py
-import SplitSkinCancerMnist
+# import SplitSkinCancerMnist
 from ActiveLearningMethods import EntropyStrategy, RandomSamplingStrategy , LeastConfidenceStrategy , DRLA
 
 
@@ -109,18 +110,18 @@ def load_data(path):
     return x_train, y_train , x_val , y_val
 
 
-def get_skin_mnist_x_y(dataFrame):
-    return dataFrame.path.values, dataFrame.label.values
+# def get_skin_mnist_x_y(dataFrame):
+#     return dataFrame.path.values, dataFrame.label.values
 
 def main():
     print("Starting the main function.\n")
     
     path = '/Users/mehrnoushalizade/Desktop/TA-solutions/ActiveLearningProject/PatchCamelyon/output/'
 
-    skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
-    skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
-    skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
-    skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
+    # skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
+    # skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
+    # skin_test_train_x, skin_test_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_test)
+    # skin_test_val_x, skin_test_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_testVal)
 
     x_train, y_train, x_val, y_val = load_data(path)
     x_train = resize_images(x_train)  
@@ -137,6 +138,7 @@ def main():
     print("Precomputing feature maps for frozen resnet layers...")
     x_train = model.precompute_input(x_train)
     x_val = model.precompute_input(x_val)
+    
     print("Done Precomputing feature maps!")
 
     strategies = [ 
@@ -189,8 +191,20 @@ def main():
             new_state = model.predict(np.array(x_train))
             print(f"New performance: Loss = {new_performance[0]}, Accuracy = {new_performance[1]}")
             
+            y_pred_val = np.argmax(model.predict(np.array(x_val)), axis =1 )
+            print(f"shape y_val_pred is : {y_pred_val.shape}")
             
-            metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
+            y_val_int = np.argmax(y_val, axis=1)
+            
+            
+            
+            f1_score_macro = f1_score(y_val_int, y_pred_val, average='macro')
+            f1_score_micro = f1_score(y_val_int, y_pred_val, average='micro')
+            
+            print(f"f1_score_micro is :  {f1_score_micro} and f1_score_macro is = {f1_score_macro}")
+            
+            # metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
+            metric_plotter.save_epoch_metrics(None, None, F1_micro=f1_score_micro, F1_macro=f1_score_macro)
             strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
 
             # Update the remaining indices
