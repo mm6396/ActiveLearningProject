@@ -81,7 +81,7 @@ class ResNet50Classifier:
 
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
-        trainable_input = tf.keras.layers.Input((avg_pool.shape[-1]))
+        trainable_input = tf.keras.layers.Input((avg_pool.shape[-1],))
         trainable_output = Dense(self.num_class, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
@@ -265,12 +265,18 @@ def load_image_paths(pathslist):
 #     # Make numerical categories to
 
 def main():
-    # print("Test patch camelyon")
-    #
-    # histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
-    # x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
-    #
-    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
+    print("Test patch camelyon")
+
+    histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
+    x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
+
+    test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
+
+    # Save memory!
+    del x_train
+    del y_train_numerical
+    del x_val
+    del y_val_numerical
 
     print("Test Skin mnist")
 
@@ -279,7 +285,6 @@ def main():
     old_path = os.getcwd()
     os.chdir("Model_Implementation")
     import SplitSkinCancerMnist
-
 
     skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
     skin_train_val_x, skin_train_val_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_val)
@@ -295,24 +300,30 @@ def main():
 
     test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST_DRLA", num_classes=7)
 
-    # print("Test diabetic retinopathy")
-    #
-    # # Add parent directory to path, so we can import Diabetic_Retinopathy properly.
-    # sys.path.append("/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject")
-    # import Diabetic_Retinopathy
-    #
-    # # flip the mapping!
-    # mapping_dict = {}
-    # for key in Diabetic_Retinopathy.diagnosis_dict:
-    #     mapping_dict[Diabetic_Retinopathy.diagnosis_dict[key]] = key
-    #
-    # train1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.train1_labels]
-    # test1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.test1_labels]
-    #
-    # test_on_dataset(Diabetic_Retinopathy.train1_images,
-    #                 train1_lbls,
-    #                 Diabetic_Retinopathy.test1_images,
-    #                 test1_lbls, run_name="Db_R_DRLA", num_classes=5)
+    # Save memory!
+    del skin_train_train_x
+    del skin_train_val_x
+    del skin_train_train_y
+    del skin_train_val_y
+
+    print("Test diabetic retinopathy")
+
+    # Add parent directory to path, so we can import Diabetic_Retinopathy properly.
+    sys.path.append("/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject")
+    import Diabetic_Retinopathy
+
+    # flip the mapping!
+    mapping_dict = {}
+    for key in Diabetic_Retinopathy.diagnosis_dict:
+        mapping_dict[Diabetic_Retinopathy.diagnosis_dict[key]] = key
+
+    train1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.train1_labels]
+    test1_lbls = [mapping_dict[x] for x in Diabetic_Retinopathy.test1_labels]
+
+    test_on_dataset(Diabetic_Retinopathy.train1_images,
+                    train1_lbls,
+                    Diabetic_Retinopathy.test1_images,
+                    test1_lbls, run_name="Db_R_DRLA", num_classes=5)
 
     print("Done")
 
