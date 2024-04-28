@@ -158,16 +158,25 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
 
         num_samples = len(x_train)
 
-        # 10% of each class, for binary case.
-        negative_class_idx = np.where(np.squeeze(y_train_numerical) == 0)[0]
-        negative_class_count = negative_class_idx.shape[0]
-        positive_class_idx = np.where(np.squeeze(y_train_numerical) == 1)[0]
-        positive_class_count = positive_class_idx.shape[0]
+        indices_lists = []
+        for class_int in range(num_classes):
+            # 10% of each class. Supports multiclass now too!
+            class_idx = np.where(np.squeeze(y_train_numerical) == class_int)[0]
+            class_count = class_idx.shape[0]
+            class_idx = np.random.choice(class_idx, int(class_count * CLASS_FRACTION),
+                                                  replace=False)
+            indices_lists.append(class_idx)
 
-        negative_class_idx = np.random.choice(negative_class_idx, int(negative_class_count * CLASS_FRACTION), replace=False)
-        positive_class_idx = np.random.choice(positive_class_idx, int(positive_class_count * CLASS_FRACTION), replace=False)
+        #
+        # negative_class_idx = np.where(np.squeeze(y_train_numerical) == 0)[0]
+        # negative_class_count = negative_class_idx.shape[0]
+        # positive_class_idx = np.where(np.squeeze(y_train_numerical) == 1)[0]
+        # positive_class_count = positive_class_idx.shape[0]
+        #
+        # negative_class_idx = np.random.choice(negative_class_idx, int(negative_class_count * CLASS_FRACTION), replace=False)
+        # positive_class_idx = np.random.choice(positive_class_idx, int(positive_class_count * CLASS_FRACTION), replace=False)
 
-        initial_indices = np.concatenate([negative_class_idx, positive_class_idx], axis=0)
+        initial_indices = np.concatenate(indices_lists, axis=0)
 
         labeled_mask = np.zeros(num_samples, dtype=bool)
 
@@ -233,14 +242,16 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
             remaining_indices = np.where(labeled_mask==False)[0]
 
         # print(f"Active learning with {strategy} completed.")
-        metric_plotter.display_all_plots()
+        # metric_plotter.display_all_plots()
 
         os.makedirs(run_name, exist_ok=True)
         # Save all plots separately
         metric_plotter.save_plots(metric_plotter.get_metric_names(), save_dir=run_name)
 
         # train/val loss for judging fit/overfit issues
-        metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
+        # metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
+
+        metric_plotter.save_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss", save_dir=run_name)
 
         with open(run_name + ".pickle", 'ab') as f:
             pickle.dump(metric_plotter, f)
@@ -265,18 +276,18 @@ def load_image_paths(pathslist):
 #     # Make numerical categories to
 
 def main():
-    print("Test patch camelyon")
-
-    histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
-    x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
-
-    test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
-
-    # Save memory!
-    del x_train
-    del y_train_numerical
-    del x_val
-    del y_val_numerical
+    # print("Test patch camelyon")
+    #
+    # histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
+    # x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
+    #
+    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
+    #
+    # # Save memory!
+    # del x_train
+    # del y_train_numerical
+    # del x_val
+    # del y_val_numerical
 
     print("Test Skin mnist")
 
