@@ -55,6 +55,8 @@ class ResNet50Classifier:
 
         self.precompute_batch_size = 32  # Just to manage this prediction step, so it doesn't consume too much RAM.
 
+        self.model_batch_size = 32
+
     def _build_models(self):
 
         # Separating the model parts to run prediction in batched parts!
@@ -70,7 +72,7 @@ class ResNet50Classifier:
         construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
         trainable_input = tf.keras.layers.Input((avg_pool.shape[1],))
-        trainable_output = Dense(2, activation='softmax')(trainable_input)
+        trainable_output = Dense(self.num_class, activation='softmax')(trainable_input)
 
         model = Model(inputs=trainable_input, outputs=trainable_output)
         model.compile(optimizer=SGD(learning_rate=self.lr, momentum=0.9, nesterov=True),loss='categorical_crossentropy', metrics=['accuracy'])
@@ -80,7 +82,7 @@ class ResNet50Classifier:
     def precompute_input(self, x):
         # Use the frozen model trunk to precompute features for all x
         # Better than re-running the model every time...
-        return self.base_model.predict(x, batch_size=32)
+        return self.base_model.predict(x, batch_size=self.precompute_batch_size)
 
     def fit(self, x, y, epochs, batch_size, validation_data):
         # NOTE: only fit precomputed x!
@@ -88,12 +90,12 @@ class ResNet50Classifier:
     
     def predict(self, x):
         # NOTE: only fit precomputed x!
-        return self.model.predict(x)
+        return self.model.predict(x, batch_size=self.model_batch_size)
     
     
     def evaluate(self, x, y):
         # NOTE: only fit precomputed x!
-        return self.model.evaluate(x, y)
+        return self.model.evaluate(x, y, batch_size=self.model_batch_size)
 
 def load_data(path):
     with h5py.File(path + 'train250_train_x.h5', 'r') as file:
