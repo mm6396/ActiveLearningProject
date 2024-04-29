@@ -142,15 +142,19 @@ def main():
     print("Done Precomputing feature maps!")
 
     strategies = [ 
-                  # EntropyStrategy(),
-                #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
-                    DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
+                EntropyStrategy(),
+                RandomSamplingStrategy(), LeastConfidenceStrategy() ,
+                DRLA(250 , 2 , y_train)  # n_samples, k_classes, n_truth_labels
                     ]
     
-    metric_plotter = MetricPlotter()
-
+   
+    
+    
     for strategy in strategies:
-        print(f"------------------- << {strategy} >> --------------------------")
+        metric_plotter = MetricPlotter()
+        print(f"------------------- << {type(strategy).__name__} >> --------------------------")
+        strategy_name = type(strategy).__name__
+       
 
         num_samples = len(x_train)
         initial_samples = 200  
@@ -168,7 +172,7 @@ def main():
         remaining_indices = np.where(labeled_mask==False)[0]
 
         while len(remaining_indices) > 0:
-            print(f"The Strategy is: {strategy} \n")
+            print(f"The Strategy is  :---- { type(strategy).__name__} ---- \n")
             # Choose one new samples from unlabeled pool to label it
             predictions = model.predict(np.array(x_train))  # Predict on all data
             print(f"dimension labeled_mask is : {labeled_mask.shape}")
@@ -198,20 +202,26 @@ def main():
             
             
             
-            f1_score_macro = f1_score(y_val_int, y_pred_val, average='macro')
-            f1_score_micro = f1_score(y_val_int, y_pred_val, average='micro')
+            f1_micro = f1_score(y_val_int, y_pred_val, average='micro')
+            f1_macro = f1_score(y_val_int, y_pred_val, average='macro')
             
-            print(f"f1_score_micro is :  {f1_score_micro} and f1_score_macro is = {f1_score_macro}")
             
-            # metric_plotter.save_epoch_metrics(None, None, loss=new_performance[0], accuracy=new_performance[1])
-            metric_plotter.save_epoch_metrics(None, None, F1_micro=f1_score_micro, F1_macro=f1_score_macro)
+            
+            metric_plotter.save_epoch_metrics(None, None, 
+                F1_micro= f1_micro,
+                F1_macro= f1_macro
+            )
+            
+
+            
+            
             strategy.update_on_new_state(new_state, labeled_mask, predictions, old_mask)
 
             # Update the remaining indices
             remaining_indices = np.where(labeled_mask==False)[0]
-
-        print(f"Active learning with {strategy} completed.")
-        metric_plotter.display_all_plots()
-
+            
+        
+        print(f"Active learning with {type(strategy).__name__} completed.")
+        metric_plotter.display_plot_simultaneous(['F1_micro', 'F1_macro'], f"F1 Scores for {strategy_name}")
 if __name__ == "__main__":
     main()
