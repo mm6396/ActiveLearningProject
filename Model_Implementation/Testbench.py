@@ -1,6 +1,7 @@
 # Merhnoush
 # Jeremy Lim
 # jlim@wpi.edu
+# Zaher Bunni zbunni@wpi.edu
 # Quick testbench framework, to help guide us in implementation.
 import os
 
