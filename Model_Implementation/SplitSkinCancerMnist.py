@@ -1,9 +1,13 @@
+# Parts of this code is leveraged from:
+# https://colab.research.google.com/github/hallmx/DL_medical_imaging_cle-ai/blob/master/HAM10000_skin_lesion_classifier.ipynb#scrollTo=Dw4v8lw_XXwB
+
+
+# Zaher Bunni (zbunni@wpi.edu)
+
 import pandas as pd
 from pathlib import Path
 from sklearn import model_selection
 import collections
-#from PIL import Image
-#import matplotlib.pyplot as plt
 import os
 RAND_SEED = 2653
 
@@ -36,11 +40,8 @@ scMnist_data['label']=scMnist_data.dx.cat.codes # Convert the labels to numbers
 scMnist_data['lesion_type'] = scMnist_data.dx.map(lesion_type_dict)
 print(scMnist_data.head())
 
-# {filename : path} for all files in both image folders
+# {Image Id : path} for all files in both image folders
 imageid_path_dict = {str(x).split(os.sep)[-1][:-4]: str(x) for x in list(data_path.glob('*/*.jpg'))}
-#imageid_path_dict = {str(x).split('/')[-1]: str(x) for x in list(data_path.glob('*/*.jpg'))}
-# use {filename: path} dict to select items from the correct folders
-#scMnist_data['path'] = [Path(data_path/imageid_path_dict[fn].split('/')[3]/f'{fn}.jpg') for fn in scMnist_data.index.values]
 scMnist_data['path'] = [Path(imageid_path_dict[fn]) for fn in scMnist_data.index.values]
 
 
@@ -64,7 +65,6 @@ scMnist_train = scMnist_train[~scMnist_train.lesion_id.isin(scMnist_test.lesion_
 # check test and train dfs have no shared `lesion_ids` or `image_ids`
 check_lesion_ids = scMnist_test['lesion_id'].isin(scMnist_train['lesion_id']).value_counts()
 check_image_ids = collections.Counter(scMnist_test.index.isin(scMnist_train.index))
-#print(f'Test/train overlap? lesion_id: {int(check_lesion_ids) != len(scMnist_test)}, image_id: {check_image_ids[0] != len(scMnist_test)}')
 print(f'Test/train overlap? lesion_id: {int(check_lesion_ids.iloc[0]) != len(scMnist_test)}, image_id: {check_image_ids[0] != len(scMnist_test)}')
 
 # Check the balance of the train and test sets
