@@ -21,9 +21,14 @@ def check_duplicates(df):
 
 def main():
 
-    data_path = Path("../skin-cancer-mnist")
+    # data_path = Path("../skin-cancer-mnist")
 
-    csv_path = data_path / 'HAM10000_metadata.csv'
+    # JL - temporary patch
+    data_path = Path("C:\\Users\\jerem\\Documents\\WPI_Stuff\\CS_541_Group_Project\\ActiveLearningProject\\skin_cancer_mnist\\")
+
+    # csv_path = data_path / 'HAM10000_metadata.csv'
+    csv_path = Path("C:\\Users\\jerem\\Documents\\WPI_Stuff\\CS_541_Group_Project\\ActiveLearningProject\\skin_cancer_mnist\\HAM10000_metadata.csv")
+
     scMnist_data = pd.read_csv(csv_path).set_index('image_id')
     #print(scMnist_data.head())
 

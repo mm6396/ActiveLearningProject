@@ -37,7 +37,7 @@ class MetricPlotter:
     # Get a list of integers, denoting plot epochs.
     # make it easy to plot stuff if you call get_metric_dict_copy
     def get_epochs_list(self):
-        return list(range(1, self.epoch_counter+1))
+        return list(range(1, self.epoch_counter))
 
     # How many epochs we have metrics recorded for.
     def get_num_epochs(self):
@@ -116,7 +116,7 @@ class MetricPlotter:
             plt.xlabel("Epochs")
 
             # add in epoch time real quick!
-            plt.savefig(os.path.join(save_dir, metric_name + "_" + datetime.datetime.utcnow().strftime("%s") + ".png"))
+            plt.savefig(os.path.join(save_dir, metric_name + "_" + str(int(datetime.datetime.utcnow().timestamp())) + ".png"))
             plt.close()
 
     # Save plots to image files. Like display_plot_simultaneous.
@@ -134,7 +134,7 @@ class MetricPlotter:
         plt.legend()  # Add a legend
         # loc="upper right"
 
-        plt.savefig(os.path.join(save_dir, plot_title + "_" + datetime.datetime.utcnow().strftime("%s") + ".png"))
+        plt.savefig(os.path.join(save_dir, plot_title + "_" + str(int(datetime.datetime.utcnow().timestamp())) + ".png"))
         plt.close()
 
 

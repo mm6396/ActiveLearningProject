@@ -2,6 +2,9 @@
 # jlim@wpi.edu
 # All of our active learning strategies are implemented here.
 
+import os
+import shutil
+
 import abc
 import random  # for batch shuffling
 import math
@@ -10,6 +13,7 @@ import numpy as np
 import keras
 from keras import layers
 import tensorflow as tf
+
 
 class ActiveLearningMethod(abc.ABC):
     # All active learning methods must subclass this!
@@ -211,7 +215,7 @@ class DRLA(ActiveLearningMethod):
         self.critic_lr = 0.002
         self.actor_lr = 0.001
 
-        self.update_batch_size = 32
+        self.update_batch_size = 32  #
 
         self.critic_optimizer = keras.optimizers.Adam(self.critic_lr)
         self.actor_optimizer = keras.optimizers.Adam(self.actor_lr)
@@ -370,6 +374,11 @@ class DRLA(ActiveLearningMethod):
             # Number of "experiences" to store at max
             self.buffer_capacity = n_samples
 
+            # self.buffer_save_dir = os.path.join(os.getcwd(), "buffer_dir")
+            # if os.path.exists(self.buffer_save_dir):
+            #     shutil.rmtree(self.buffer_save_dir)
+            # os.makedirs(self.buffer_save_dir,exist_ok=True)
+
             # Its tells us num of times record() was called.
             self.buffer_counter = 0
 
@@ -389,9 +398,22 @@ class DRLA(ActiveLearningMethod):
             index = self.buffer_counter % self.buffer_capacity
 
             self.state_buffer[index] = obs_tuple[0]
+            # savestate = os.path.join(self.buffer_save_dir, "state_buffer", str(index) + ".npy")
+            # os.makedirs(os.path.join(self.buffer_save_dir, "state_buffer"), exist_ok=True)
+            # np.save(savestate, obs_tuple[0])
+
             self.action_buffer[index] = obs_tuple[1]
+            # savestate = os.path.join(self.buffer_save_dir, "action_buffer", str(index) + ".npy")
+            # os.makedirs(os.path.join(self.buffer_save_dir, "action_buffer"), exist_ok=True)
+            # np.save(savestate, obs_tuple[1])
+
+
             self.reward_buffer[index] = obs_tuple[2]
+
             self.next_state_buffer[index] = obs_tuple[3]
+            # savestate = os.path.join(self.buffer_save_dir, "state_next_buffer", str(index) + ".npy")
+            # os.makedirs(os.path.join(self.buffer_save_dir, "state_next_buffer"), exist_ok=True)
+            # np.save(savestate, obs_tuple[3])
 
             self.buffer_counter += 1
 
@@ -410,6 +432,15 @@ class DRLA(ActiveLearningMethod):
                 batch_indices = np.random.choice(record_range, record_range)
             else:
                 batch_indices = np.random.choice(record_range, num_to_sample)
+
+            # state_concat = np.concatenate([np.expand_dims(np.load(os.path.join(self.buffer_save_dir, "state_buffer", str(x) + ".npy")),axis=0) for x in batch_indices], axis=0)
+            # action_concat = np.concatenate([np.expand_dims(np.load(os.path.join(self.buffer_save_dir, "action_buffer", str(x) + ".npy")),axis=0) for x in batch_indices], axis=0)
+            # state_next_concat = np.concatenate(
+            #     [np.expand_dims(np.load(os.path.join(self.buffer_save_dir, "state_next_buffer", str(x) + ".npy")), axis=0)
+            #      for x in batch_indices], axis=0)
+            #
+            # return (state_concat, action_concat,
+            #         self.reward_buffer[batch_indices], state_next_concat)
 
             return (self.state_buffer[batch_indices], self.action_buffer[batch_indices],
                     self.reward_buffer[batch_indices], self.next_state_buffer[batch_indices])

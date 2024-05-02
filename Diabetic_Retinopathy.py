@@ -11,7 +11,9 @@ from sklearn.model_selection import train_test_split
 import shutil
 
 # Load the data
-df = pd.read_csv('../rawdata/train.csv')
+# df = pd.read_csv('../rawdata/train.csv')
+# JL patch
+df = pd.read_csv('C:\\Users\\jerem\\Documents\\WPI_Stuff\\CS_541_Group_Project\\ActiveLearningProject\\diabetic_retinopathy\\train.csv')
 
 # Mapping diagnosis to categorical types
 diagnosis_dict_binary = {
@@ -52,7 +54,9 @@ for directory in directories:
         shutil.rmtree(dir_path)
     os.makedirs(dir_path)
 
-src_dir = '../rawdata/gaussian_filtered_images/gaussian_filtered_images'
+# src_dir = '../rawdata/gaussian_filtered_images/gaussian_filtered_images'
+# JL patch
+src_dir = 'C:\\Users\\jerem\\Documents\\WPI_Stuff\\CS_541_Group_Project\\ActiveLearningProject\\diabetic_retinopathy\\gaussian_filtered_images\\gaussian_filtered_images\\'
 
 # Function to load images into numpy arrays
 def load_images(dataframe, src_dir, target_dir):

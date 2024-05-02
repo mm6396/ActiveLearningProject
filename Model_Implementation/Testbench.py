@@ -4,6 +4,8 @@
 # Quick testbench framework, to help guide us in implementation.
 import sys, os
 
+# import gpucompat
+
 # Basically, once this testbench is up and running, we can tweak/re-tweak DRLA using the training set to optimize performance.
 # NOTE: NOT a good idea to tweak the classifier, only the AL method!!!
 
@@ -46,7 +48,8 @@ def convert_to_one_hot(labels, num_classes):
 
 def resize_images(images):
     ###Resize images to the standard for ResNet50.
-    return tf.image.resize(images, [224, 224])
+    with tf.device('/CPU:0'):
+        return tf.image.resize(images, [224, 224])
 
 
 #These metrics will be implemented
@@ -64,22 +67,21 @@ class ResNet50Classifier:
         self.lr = lr
         self.base_model, self.model = self._build_models()
 
-        self.precompute_batch_size = 32  # Just to manage this prediction step, so it doesn't consume too much RAM.
+        self.precompute_batch_size = 2  # Just to manage this prediction step, so it doesn't consume too much RAM.
         self.model_batch_size = 32  # Manage most of the other sets, don't try all images simultaneously!
 
     def _build_models(self):
 
         # Separating the model parts to run prediction in batched parts!
 
-        base_model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape)
+        with tf.device('/CPU:0'):
+            base_model = ResNet50(weights='imagenet', include_top=False, input_shape=self.input_shape)
+            avg_pool = tf.keras.layers.GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+            construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
 
-        # Freezing all layers
-        for l in base_model.layers:
-            l.trainable = False
-
-        avg_pool = tf.keras.layers.GlobalAveragePooling2D(name="avg_pool")(base_model.output)
-
-        construct_base_model = Model(inputs=base_model.input, outputs=avg_pool)
+            # Freezing all layers
+            for l in base_model.layers:
+                l.trainable = False
 
         trainable_input = tf.keras.layers.Input((avg_pool.shape[-1],))
         trainable_output = Dense(self.num_class, activation='softmax')(trainable_input)
@@ -92,7 +94,11 @@ class ResNet50Classifier:
     def precompute_input(self, x):
         # Use the frozen model trunk to precompute features for all x
         # Better than re-running the model every time...
-        return self.base_model.predict(x, batch_size=self.precompute_batch_size)
+        with tf.device('/CPU:0'):
+            return self.base_model.predict(x, batch_size=self.precompute_batch_size)
+
+    def clear_base_model(self):
+        del self.base_model
 
     def fit(self, x, y, epochs, batch_size, validation_data):
         # NOTE: only fit precomputed x!
@@ -135,28 +141,37 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
     y_val = convert_to_one_hot(y_val_numerical, num_classes=num_classes)
 
     # JL - moving model outside of loop.
-    classifier = ResNet50Classifier(input_shape=(224, 224, 3), num_class=num_classes)
-    model = classifier
+    model = ResNet50Classifier(input_shape=(224, 224, 3), num_class=num_classes)
 
     # This step might take a little bit, but it only runs once!
     print("Precomputing feature maps for frozen resnet layers...")
     x_train = model.precompute_input(x_train)
     x_val = model.precompute_input(x_val)
+    model.clear_base_model()
     print("Done Precomputing feature maps!")
 
     strategies = [ 
-                  # EntropyStrategy(),
-                #   RandomSamplingStrategy(), LeastConfidenceStrategy() ,
-                    DRLA(x_train.shape[0] , num_classes , y_train)  # n_samples, k_classes, n_truth_labels
+                  EntropyStrategy(),
+                  RandomSamplingStrategy(), LeastConfidenceStrategy() ,
+                #     DRLA(x_train.shape[0] , num_classes , y_train)  # n_samples, k_classes, n_truth_labels
                     ]
+
+    strat_names = ["Entropy", "Random", "LC"]
     
-    metric_plotter = MetricPlotter()
+
     # val_metric_plotter = MetricPlotter()
 
-    for strategy in strategies:
+    for idx, strategy in enumerate(strategies):
         print(f"------------------- << {strategy} >> --------------------------")
 
+        # JL - moving model outside of loop.
+        model = ResNet50Classifier(input_shape=(224, 224, 3), num_class=num_classes)
+
         num_samples = len(x_train)
+
+        metric_plotter = MetricPlotter()
+
+        strat_run_name = strat_names[idx] + '_' + run_name
 
         indices_lists = []
         for class_int in range(num_classes):
@@ -190,6 +205,10 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
         remaining_indices = np.where(labeled_mask==False)[0]
 
         while len(remaining_indices) > 0:
+
+            # if len(remaining_indices) < 215:
+            #     break
+
             print("Remaining samples: " + str(len(remaining_indices)))
             # print(f"The Strategy is: {strategy} \n")
             # Choose one new samples from unlabeled pool to label it
@@ -244,19 +263,21 @@ def test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name
         # print(f"Active learning with {strategy} completed.")
         # metric_plotter.display_all_plots()
 
-        os.makedirs(run_name, exist_ok=True)
+        os.makedirs(strat_run_name, exist_ok=True)
         # Save all plots separately
-        metric_plotter.save_plots(metric_plotter.get_metric_names(), save_dir=run_name)
+        metric_plotter.save_plots(metric_plotter.get_metric_names(), save_dir=strat_run_name)
 
         # train/val loss for judging fit/overfit issues
         # metric_plotter.display_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss")
 
-        metric_plotter.save_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss", save_dir=run_name)
+        metric_plotter.save_plot_simultaneous(["train_loss", "val_loss"], "Train vs Val loss", save_dir=strat_run_name)
 
-        with open(run_name + ".pickle", 'ab') as f:
+        run_picklefile = os.path.join(strat_run_name, strat_run_name + ".pickle")
+
+        with open(run_picklefile, 'ab') as f:
             pickle.dump(metric_plotter, f)
 
-        print("Run : " + run_name + " done.")
+        print("Run : " + strat_run_name + " done.")
 
 
 def load_image_paths(pathslist):
@@ -278,10 +299,10 @@ def load_image_paths(pathslist):
 def main():
     # print("Test patch camelyon")
     #
-    # histo_path = '/home/jeremy/Documents/WPI_Spring_24/CS_541/Group_Project/repository/ActiveLearningProject/PatchCamelyon/output/'
+    # histo_path = 'C:\\Users\\jerem\\Documents\\WPI_Stuff\\CS_541_Group_Project\\ActiveLearningProject\\PatchCamelyon\\output\\'
     # x_train, y_train_numerical, x_val, y_val_numerical = load_data(histo_path)
     #
-    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon_DRLA", num_classes=2)
+    # test_on_dataset(x_train, y_train_numerical, x_val, y_val_numerical, run_name="Camelyon", num_classes=2)
     #
     # # Save memory!
     # del x_train
@@ -294,7 +315,8 @@ def main():
     # Fixing path issues
     # Change to the Model_Implementation directory, wherever it is on your system
     old_path = os.getcwd()
-    os.chdir("Model_Implementation")
+    if os.path.basename(old_path) != "Model_Implementation":
+        os.chdir("Model_Implementation")
     import SplitSkinCancerMnist
 
     skin_train_train_x, skin_train_train_y = get_skin_mnist_x_y(SplitSkinCancerMnist.scMnist_train)
@@ -309,7 +331,7 @@ def main():
     # move back, to keep from messing other code up
     os.chdir(old_path)
 
-    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST_DRLA", num_classes=7)
+    test_on_dataset(skin_train_train_x, skin_train_train_y, skin_train_val_x, skin_train_val_y, run_name="Skin_MNIST", num_classes=7)
 
     # Save memory!
     del skin_train_train_x
@@ -334,7 +356,7 @@ def main():
     test_on_dataset(Diabetic_Retinopathy.train1_images,
                     train1_lbls,
                     Diabetic_Retinopathy.test1_images,
-                    test1_lbls, run_name="Db_R_DRLA", num_classes=5)
+                    test1_lbls, run_name="Diabetic_Retinopathy", num_classes=5)
 
     print("Done")
 
